@@ -79,10 +79,9 @@ def buscar_dados(nome):
                 return df_normalizado.iloc[idx, dados_coluna]
     return None
 
-# Função para atualizar a planilha
 def atualizar_planilha(df, contrato, unidade, nomes_e_cargos):
-    df_original = df.copy() 
-    erro_detectado = False # Copiar a planilha original para comparações futuras
+    df_original = df.copy()
+    erro_detectado = False  # Copiar a planilha original para comparações futuras
     linha_existente = df[(df['Nº CONTRATO'] == contrato) & (df['UNIDADE'] == unidade)]
     
     if not linha_existente.empty:
@@ -95,6 +94,9 @@ def atualizar_planilha(df, contrato, unidade, nomes_e_cargos):
             else:
                 dados_coluna = df.columns.get_loc(cargo) + 1
                 df.at[linha_existente.index[0], df.columns[dados_coluna]] = ""
+                st.warning(f"🚨 **Pessoa não localizada**: A pessoa '{novo_nome}' não foi encontrada. Você precisa atuar!")
+        # Comparação de nome atual e novo
+        for cargo, novo_nome in nomes_e_cargos.items():
             nome_atual = linha_existente.iloc[0, df.columns.get_loc(cargo)].strip()
             if nome_atual != novo_nome:
                 df.at[linha_existente.index[0], cargo] = novo_nome
@@ -116,6 +118,7 @@ def atualizar_planilha(df, contrato, unidade, nomes_e_cargos):
                 else:
                     dados_coluna = df.columns.get_loc(cargo) + 1
                     nova_linha[df.columns[dados_coluna]] = ""
+                    st.warning(f"🚨 **Pessoa não localizada**: A pessoa '{nome}' não foi encontrada. Você precisa atuar!")
             nova_linha_df = pd.DataFrame([nova_linha])
             df = pd.concat([df, nova_linha_df], ignore_index=True)
     
@@ -193,24 +196,22 @@ if uploaded_file:
 
         if st.button("📤 Atualizar Planilha"):
             df_atualizado, df_original, erro_detectado = atualizar_planilha(df, contrato, unidade, dicionario)
-        
-        # Se não houver erro, exibe a tabela de alterações e o botão para baixar
-            if not erro_detectado:
-            #df_atualizado, df_original = atualizar_planilha(df, contrato, unidade, dicionario)
+
+            if erro_detectado:
+                st.warning("🚨 **Erro detectado**: O contrato já está registrado, mas a unidade não confere. Por favor, verifique.")
+            else:
                 st.success("✔️ Planilha atualizada com sucesso!")
 
                 # Mostrar as diferenças entre a planilha original e a atualizada
                 st.subheader("🔄 Diferenças - Linhas Alteradas:")
                 detalhes, df_alteradas_atual, df_alteradas_original = mostrar_diferencas(df_original, df_atualizado)
-                
+
                 if detalhes:
                     st.write("🔧 **Alterações detectadas nas linhas:**")
                     for detalhe in detalhes:
                         st.markdown(detalhe, unsafe_allow_html=True)
                     
                     col1, col2 = st.columns(2)
-
-                    # Mostrar apenas as linhas alteradas
                     with col1:
                         st.subheader("📝 Planilha Original - Linhas Alteradas")
                         st.dataframe(df_alteradas_original, use_container_width=True)
