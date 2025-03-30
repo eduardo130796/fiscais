@@ -1,0 +1,14 @@
+{
+    "CLIENT_ID": "652191149879-n4l39h8quk3rfg4lmb2ijeb4pbm347af.apps.googleusercontent.com",
+    "CLIENT_SECRET": "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",
+    "REFRESH_TOKEN": "1//04eIbByO3WEVXCgYIARAAGAQSNwF-L9Irele9iUZ31ls60LWTYjDfQ2_Ac5IQqJAxme2bT7JTuoTqZIoso6dI1RgUd_In3qFT7Xo",
+    "PASTA_ID_FISCAIS": "1acmSiq3Blgd301aakWQU-URAy2hxoPNS",
+    "PLANILHAS_FISCAIS": {
+        "Centro-Oeste": "18aQM5wyH3ktqLAzpUnlfLXJniCoUU6xp",
+        "Nordeste": "1ZF30tvr_Tb5AcEMv2nR0drGTFWz95Ysn",
+        "Sudeste": "131FjepCMYuKYTq3ok3ZqLaEd-S37LE_b",
+        "Sul": "1tezm8D_eMFsoR0mvgu0Hz_97p5dxqoEF",
+        "Norte": "1_ZzqA_3AEPfMqsq_1xXKFfaNkDSVGn7I"
+    },
+    "PASTA_ID_ORCAMENTO": "1MP1wiSpSBx_pNTt3PTo3ayokZFxm_niR"
+}
