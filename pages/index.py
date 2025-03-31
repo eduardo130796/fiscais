@@ -18,9 +18,19 @@ with col2:
     st.page_link("pages/orcam.py", label="Orçamento", icon="📈")
     
 with col3:
+    st.markdown("### 📊 Painel Orçamentário")
+    st.write("Painel Gerencial Orçamentário.")
+    st.page_link("pages/relatorio.py", label="Relatório", icon="📊")
+
+    # Criando cards interativos
+col1, col2, col3 = st.columns(3)
+
+with col1:
     st.markdown("### ⚙️ Configurações")
     st.write("Edite as credenciais OAuth e outras configurações.")
     st.page_link("pages/config.py", label="Configurações", icon="⚙️")
+
+
 
 # Rodapé fixo com largura total
 rodape = """
