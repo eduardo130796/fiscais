@@ -202,9 +202,10 @@ def baixar_arquivos_csv(pasta_id):
     return df_combinado
     
 
-# Verificar se os dados já estão salvos no session_state
+# Verificar se os dados já estão carregados em session_state
 if "dados" not in st.session_state:
-    st.session_state.dados = None  # Inicializar com None
+    # Carregar dados automaticamente quando a aplicação for iniciada
+    st.session_state.dados = carregar_dados()
 if "ultima_atualizacao" not in st.session_state:
     st.session_state.ultima_atualizacao = None  # Inicializar com None
 
@@ -288,7 +289,7 @@ st.markdown('<div class="title">📊 Painel de Gestão Orçamentária</div>', un
 with st.sidebar:
     if st.button("Atualizar Dados"):
         with st.spinner("Atualizando dados..."):
-            processar_dados()  # Atualiza os dados quando o botão for pressionado
+            st.session_state.dados = carregar_dados()  # Atualiza os dados quando o botão for pressionado
 
 # Verificar se os dados estão carregados no session_state
 if st.session_state.dados is not None:
