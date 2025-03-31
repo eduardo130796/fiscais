@@ -205,7 +205,7 @@ def baixar_arquivos_csv(pasta_id):
 # Verificar se os dados já estão carregados em session_state
 if "dados" not in st.session_state:
     # Carregar dados automaticamente quando a aplicação for iniciada
-    st.session_state.dados = carregar_dados()
+    st.session_state.dados = processar_dados()
 if "ultima_atualizacao" not in st.session_state:
     st.session_state.ultima_atualizacao = None  # Inicializar com None
 
