@@ -202,7 +202,11 @@ def baixar_arquivos_csv(pasta_id):
     return df_combinado
     
 
-
+# Verificar se os dados já estão salvos no session_state
+if "dados" not in st.session_state:
+    st.session_state.dados = None  # Inicializar com None
+if "ultima_atualizacao" not in st.session_state:
+    st.session_state.ultima_atualizacao = None  # Inicializar com None
 
 # Função para processar e salvar os dados no session_state
 def processar_dados():
@@ -276,20 +280,15 @@ st.markdown(
     </style>
     """, unsafe_allow_html=True
 )
-# Verificar se os dados já estão salvos no session_state
-if "dados" not in st.session_state:
-    st.session_state.dados = processar_dados()  # Inicializar com None
-if "ultima_atualizacao" not in st.session_state:
-    st.session_state.ultima_atualizacao = None  # Inicializar com None
-    
+
 # Cabeçalho com título e ícone
 st.markdown('<div class="title">📊 Painel de Gestão Orçamentária</div>', unsafe_allow_html=True)
-df_local = st.session_state.dados
+
 # Botão para atualizar os dados (colocado na sidebar)
 with st.sidebar:
     if st.button("Atualizar Dados"):
         with st.spinner("Atualizando dados..."):
-            st.session_state.dados = processar_dados()  # Atualiza os dados quando o botão for pressionado
+            processar_dados()  # Atualiza os dados quando o botão for pressionado
 
 # Verificar se os dados estão carregados no session_state
 if st.session_state.dados is not None:
