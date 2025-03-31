@@ -283,7 +283,7 @@ st.markdown(
 
 # Cabeçalho com título e ícone
 st.markdown('<div class="title">📊 Painel de Gestão Orçamentária</div>', unsafe_allow_html=True)
-
+df_local = st.session_state.dados
 # Botão para atualizar os dados (colocado na sidebar)
 with st.sidebar:
     if st.button("Atualizar Dados"):
