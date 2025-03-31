@@ -289,7 +289,7 @@ st.markdown('<div class="title">📊 Painel de Gestão Orçamentária</div>', un
 with st.sidebar:
     if st.button("Atualizar Dados"):
         with st.spinner("Atualizando dados..."):
-            st.session_state.dados = carregar_dados()  # Atualiza os dados quando o botão for pressionado
+            st.session_state.dados = processar_dados()  # Atualiza os dados quando o botão for pressionado
 
 # Verificar se os dados estão carregados no session_state
 if st.session_state.dados is not None:
