@@ -97,8 +97,16 @@ def normalizar_texto(texto):
     return texto
 
 # Função para normalizar a string para facilitar a comparação
-def normalizar_string(s):
-    return unidecode(s).lower() if isinstance(s, str) else s.lower()
+def normalizar_string(texto):
+    #Remove acentos, ignora maiúsculas/minúsculas e espaços extras
+    if pd.isna(texto) or not isinstance(texto, str):  # Se for NaN ou não for string, retorna como está
+        return texto
+    
+    texto = texto.strip()  # Remove espaços extras no início/fim
+    texto = texto.upper()  # Converte para minúsculas
+    texto = unicodedata.normalize("NFD", texto)  # Normaliza acentos
+    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")  # Remove diacríticos
+    return texto  # Remove acentos e converte para minúsculas
 
 def normalizar_planilha(file):
     # Carregar o arquivo Excel corretamente
@@ -171,15 +179,18 @@ def processar_tabela_html(html):
         portaria = soup.find(attrs={"class": "Texto_Centralizado_Maiusculas"}).get_text(strip=True)
         portaria = portaria.split(",")[0]
         contrato = soup.find(attrs={"class": "Texto_Ementa"}).get_text(strip=True)
-        contrato = re.findall(r"nº\s([\d/]+)", contrato)[1]
+        try:
+            contrato = re.findall(r"(?:nº|n\.°|n°)\s*([\d/]+)", contrato)[1]
+        except:
+            contrato = re.findall(r"(?:nº|n\.°|n°)\s*([\d/]+)", contrato)[0]
         contrato = formatar_contrato(contrato)
         for row in rows[1:]:  # Começa da segunda linha, que contém os dados
             cells = row.find_all('td')
             try:
                 if len(cells) >= 3:
                     unidade = cells[0].get_text(strip=True)
-                    unidade = re.sub(r"^DPU", "", unidade).strip()  
-                    nome = cells[1].get_text(strip=True)
+                    unidade = re.sub(r"^(DPU|DPU/)?/?", "", unidade).strip()  
+                    nome = cells[1].get_text(strip=True).upper()
                     cargo_extraido = cells[2].get_text(strip=True)
                     cargo_normalizado = normalizar_texto(cargo_extraido)
                     cargo = None
@@ -208,14 +219,15 @@ def processar_tabela_html(html):
 
 # Função para buscar os dados de uma pessoa pelo nome
 def buscar_dados(nome):
-    nome = nome.strip()  # Remover espaços e normalizar
-    nome_normalizado = normalizar_string(nome)  # Normalizar a string
-    df_normalizado = normalizar_planilha(df)  # Normalizar a planilha
+    nome_normalizado = normalizar_string(nome)  # Normalizar nome de entrada
+    df_normalizado = normalizar_planilha(df)  # Normalizar toda a planilha
+
     for coluna in df_normalizado.columns:
         for idx, value in df_normalizado[coluna].items():
-            if normalizar_string(str(value)) == nome_normalizado:
+            if normalizar_string(str(value)) == nome_normalizado:  # Comparação normalizada
                 dados_coluna = df.columns.get_loc(coluna) + 1
-                return df_normalizado.iloc[idx, dados_coluna]
+                return df.iloc[idx, dados_coluna]  # Retorna o valor original, não o normalizado
+
     return None
 
 def normalizar_unidade(texto):
@@ -258,7 +270,7 @@ def atualizar_planilha(df, contrato, unidade, nomes_e_cargos, portaria, processo
         
         # Comparação de nome atual e novo
         for cargo, novo_nome in nomes_e_cargos.items():
-            nome_atual = linha_existente.iloc[0, df.columns.get_loc(cargo)].strip()
+            nome_atual = str(linha_existente.iloc[0, df.columns.get_loc(cargo)]).strip() if pd.notna(linha_existente.iloc[0, df.columns.get_loc(cargo)]) else ""
             if nome_atual != novo_nome:
                 df.at[linha_existente.index[0], cargo] = novo_nome
         coluna_portaria = "Nº PORTARIA (Nº SEI)"
@@ -324,6 +336,8 @@ def formatar_planilha(arquivo):
     # Aplicar bordas, alinhamento e quebra de linha no restante da planilha
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
         for cell in row:
+            if isinstance(cell.value, str):  # Verifica se a célula contém texto
+                cell.value = cell.value.upper()
             cell.alignment = alinhamento_central  # Alinhamento central e quebra de linha
             cell.border = borda_fina
 
@@ -475,9 +489,12 @@ def verificar_html(html):
         unidade = soup.find(attrs={"class": "Texto_Centralizado_Maiusculas"})
         
         if contrato is None or unidade is None:
-            return False, "O formato do HTML está incompatível. Falta contrato ou unidade."
+            return None, False, "O formato do HTML está incompatível."
         contrato = soup.find(attrs={"class": "Texto_Ementa"}).get_text(strip=True)
-        contrato = re.findall(r"nº\s([\d/]+)", contrato)[1]
+        try:
+            contrato = re.findall(r"(?:nº|n\.°|n°)\s*([\d/]+)", contrato)[1]
+        except:
+            contrato = re.findall(r"(?:nº|n\.°|n°)\s*([\d/]+)", contrato)[0]
         contrato = formatar_contrato(contrato)
         
         # Outras verificações que você achar necessário (se necessário)
