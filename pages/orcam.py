@@ -183,14 +183,13 @@ def processar_planilhas(arquivo_base, arquivo_atualizacao, nome_arquivo_base):
     df_atualizacao = df_atualizacao[~df_atualizacao.apply(lambda row: row.astype(str).str.contains('Total').any(), axis=1)]
     df_atualizacao.ffill(inplace=True)
 
-
     # Traduz meses para português
     meses_ingles_para_portugues = {
         'jan': 'jan', 'feb': 'fev', 'mar': 'mar', 'apr': 'abr', 'may': 'mai',
         'jun': 'jun', 'jul': 'jul', 'aug': 'ago', 'sep': 'set', 'oct': 'out',
         'nov': 'nov', 'dec': 'dez'
     }
-    
+
     # Mapeia os meses para suas colunas reais com base no cabeçalho da planilha
     cabecalho = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
     meses = {
@@ -198,17 +197,17 @@ def processar_planilhas(arquivo_base, arquivo_atualizacao, nome_arquivo_base):
         for mes in ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
         if mes.capitalize() in cabecalho
     }
-    
+
     # Agrupa pagamentos por nota e mês
     pagamentos_por_nota = {}
     for _, row in df_atualizacao.iterrows():
         nota_empenho = str(row["Número da Nota de Empenho"]).strip()[-8:]
         data_pagamento = row["Métrica"]
         valor_pago = row["Unnamed: 13"]
-    
+
         if nota_empenho not in pagamentos_por_nota:
             pagamentos_por_nota[nota_empenho] = {mes: [] for mes in meses}
-    
+
         data_pagamento = pd.to_datetime(data_pagamento, errors='coerce', dayfirst=True)
         if pd.notna(data_pagamento):
             mes_pagamento = data_pagamento.strftime('%b').lower()
@@ -218,34 +217,34 @@ def processar_planilhas(arquivo_base, arquivo_atualizacao, nome_arquivo_base):
                     pagamentos_por_nota[nota_empenho][mes_pagamento_portugues].append(float(valor_pago))
                 except:
                     pass  # ignora valores não numéricos
-    
+
     # Atualiza valores pagos mês a mês na planilha
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row, values_only=False):
         nota_empenho_cell = row[4]  # coluna da nota de empenho
         status_cell = row[10]       # coluna do status
         nota_empenho = str(nota_empenho_cell.value).strip()
-    
+
         if nota_empenho in pagamentos_por_nota:
             for mes, coluna_mes in meses.items():
                 valores_novos = pagamentos_por_nota[nota_empenho].get(mes, [])
-    
+
                 if valores_novos:
                     valor_pago_cell = row[coluna_mes]
                     status_texto = str(status_cell.value).strip().lower() if status_cell.value else ""
-    
+
                     status_aceitos = [
                         "não pediu, mas pode solicitar.",
                         "solicitado - em análise",
                         "não solicitou, mas pode pedir"
                     ]
-    
+
                     # Gera fórmula com ou sem ajuste
                     soma_valores = "+".join(str(v).replace(",", ".") for v in valores_novos)
                     if any(status_texto.startswith(opcao.lower()) for opcao in status_aceitos):
                         nova_formula = f"=({soma_valores})+(({soma_valores})*AE{valor_pago_cell.row})"
                     else:
                         nova_formula = f"={soma_valores}" if len(valores_novos) > 1 else f"={valores_novos[0]}"
-    
+
                     # Só atualiza se for diferente
                     if str(valor_pago_cell.value).strip() != nova_formula:
                         ws_log.append([
@@ -262,6 +261,7 @@ def processar_planilhas(arquivo_base, arquivo_atualizacao, nome_arquivo_base):
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
+
 
     return buffer, nome_arquivo_base  # Retorna a planilha atualizada e o nome do arquivo
 
