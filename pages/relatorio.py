@@ -4,9 +4,14 @@ import streamlit as st
 import time
 from io import StringIO  
 import io
+import os
+import json
 import plotly.express as px
-from datetime import datetime
+from datetime import datetime, date
+import calendar
+import plotly.graph_objects as go
 from pages.config import carregar_configuracoes
+import math
 
 #st.set_page_config(layout="wide")
 
@@ -130,11 +135,91 @@ def converter_monetario(valor):
             return 0.0  # Caso não consiga converter, retorna 0.0
     return valor  # Se não for string, retorna o valor original
 
+
+def preencher_valor_anual_proporcional(df, ano_referencia):
+    def limpar_valor(v):
+        if isinstance(v, str):
+            v = v.replace("R$", "").replace(".", "").replace(",", ".").strip()
+            try:
+                return float(v)
+            except:
+                return 0.0
+        return v
+
+    def calcular_proporcional(data_inicio, data_fim, valor_mensal):
+        dias_total = 0
+        current = pd.Timestamp(data_inicio.year, data_inicio.month, 1)
+
+        while current.date() <= data_fim:
+            _, dias_mes = calendar.monthrange(current.year, current.month)
+            inicio_mes = current
+            fim_mes = current.replace(day=dias_mes)
+
+            # Ajusta os limites
+            if pd.Timestamp(data_inicio) > inicio_mes:
+                inicio_mes = pd.Timestamp(data_inicio)
+            if pd.Timestamp(data_fim) < fim_mes:
+                fim_mes = pd.Timestamp(data_fim)
+
+            dias_no_mes = (fim_mes - inicio_mes).days + 1
+
+            # Verifica se o mês deve ser contado como cheio
+            if inicio_mes.day == 1 and fim_mes.day == dias_mes:
+                valor_mes = valor_mensal
+            else:
+                valor_mes = (valor_mensal / dias_mes) * dias_no_mes
+
+            dias_total += valor_mes
+            current += pd.DateOffset(months=1)
+            current = current.replace(day=1)
+
+        return dias_total
+
+    df['Valor Mensal'] = df['Valor Mensal'].apply(limpar_valor)
+    df['Ocorrência'] = df['Ocorrência'].astype(str).str.strip().str.lower()
+    df['Data de Ocorrência'] = pd.to_datetime(df['Data de Ocorrência'], dayfirst=True, errors='coerce')
+    df['Valor Anual Proporcional'] = None  # zera antes de preencher
+
+    for i, row in df.iterrows():
+        ocorrencia = row['Ocorrência']
+        data_ocorrencia = row['Data de Ocorrência']
+        valor_mensal = row['Valor Mensal']
+
+        if pd.isnull(valor_mensal) or valor_mensal == 0:
+            continue
+
+        if ocorrencia == 'inicio' and not pd.isnull(data_ocorrencia):
+            inicio_data = data_ocorrencia.date()
+            fim_data = date(ano_referencia, 12, 31)
+
+            if inicio_data <= fim_data:
+                valor_total = calcular_proporcional(inicio_data, fim_data, valor_mensal)
+                df.at[i, 'Valor Anual Proporcional'] = round(valor_total, 2)
+            continue
+
+        elif ocorrencia == 'rescisão' and not pd.isnull(data_ocorrencia):
+            fim_data = data_ocorrencia.date()
+            inicio_data = date(ano_referencia, 1, 1)
+
+            if inicio_data <= fim_data:
+                valor_total = calcular_proporcional(inicio_data, fim_data, valor_mensal)
+                df.at[i, 'Valor Anual Proporcional'] = round(valor_total, 2)
+            continue
+
+        elif ocorrencia in ('nan', '', 'outro', 'não informado', 'ajuste', 'reajuste') or pd.isnull(ocorrencia):
+            df.at[i, 'Valor Anual Proporcional'] = round(valor_mensal * 12, 2)
+            continue
+
+    return df
+
+
+
 def baixar_arquivos_csv(pasta_id):
     access_token = get_access_token()
     arquivos = listar_arquivos(pasta_id)
 
     df_combinado = pd.DataFrame()
+    df_combinado_1 = pd.DataFrame()
 
     # Lista para armazenar os IDs dos arquivos processados
     arquivos_processados = []
@@ -169,29 +254,49 @@ def baixar_arquivos_csv(pasta_id):
 
         if response.status_code == 200:
             # Lê o CSV com pandas
-            df = pd.read_csv(io.StringIO(response.text), encoding='ISO-8859-1', sep=',', skiprows=4)  # Ignora as 4 primeiras linhas, se necessário
+            df = pd.read_csv(io.StringIO(response.text), encoding='ISO-8859-1', sep=',', skiprows=4,dayfirst=True)  # Ignora as 4 primeiras linhas, se necessário
             
+            df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
             # Corrigir qualquer string mal codificada
             df = df.applymap(lambda x: x.encode('latin1').decode('utf-8') if isinstance(x, str) else x)
             # Mantém apenas as colunas até a coluna AC (coluna 29)
-            colunas_necessarias = df.columns[:30]  # Colunas até a 30ª (índice 29)
+            colunas_necessarias = df.columns[:31]  # Colunas até a 30ª (índice 29)
             df = df[colunas_necessarias]
-            
+            df_comple = df.copy()
             coluna_contrato = df.columns[2]  # Coluna de contrato
-
             df = df[df[coluna_contrato].notna()]
             # Renomeando colunas para facilitar
-            df.columns = ["Regiao", "Processo", "Contrato", "Objeto", "Nota Empenho", "Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Status", "Ultima Repactuacao", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Indice", "Evolucao", "Reajuste", "Reforço/Remanejamento", " "]
+            df.columns = ["Regiao", "Processo", "Contrato", "Objeto", "Nota Empenho", "Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Status", "Ultima Repactuacao","Ocorrência","Data de Ocorrência", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Indice", "Evolucao", "Reajuste", "Reforço/Remanejamento",]
             
             # Convertendo valores financeiros
             colunas_valores = ["Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Reforço/Remanejamento"]
             for col in colunas_valores:
                 # Aplicar a função nas colunas de interesse
                 df[col] = df[col].apply(converter_monetario)
-
+            
+            df = preencher_valor_anual_proporcional(df, ano_referencia=2025)
             df["Fonte"] = file_name  # Adiciona uma coluna com o nome do arquivo
+
             df_combinado = pd.concat([df_combinado, df], ignore_index=True)
             arquivos_processados.append(file_id)  # Armazena o ID do arquivo processado
+
+            coluna_contrato = df_comple.columns[2]  # Coluna de contrato
+            df_comple["É Complementar"] = df_comple[coluna_contrato].isna()
+            df_comple[coluna_contrato] = df_comple[coluna_contrato].ffill()
+            # Renomeando colunas para facilitar
+            df_comple.columns = ["Regiao", "Processo", "Contrato", "Objeto", "Nota Empenho", "Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Status", "Ultima Repactuacao","Ocorrência","Data de Ocorrência", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Indice", "Evolucao", "Reajuste", "Reforço/Remanejamento","É Complementar"]
+            
+            # Convertendo valores financeiros
+            colunas_valores = ["Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Reforço/Remanejamento"]
+            for col in colunas_valores:
+                # Aplicar a função nas colunas de interesse
+                df_comple[col] = df_comple[col].apply(converter_monetario)
+            
+            
+
+            df_comple["Fonte"] = file_name  # Adiciona uma coluna com o nome do arquivo
+            df_combinado_1 = pd.concat([df_combinado_1, df_comple], ignore_index=True)
+            
         else:
             st.error(f"Erro ao baixar {file_name}: {response.text}")
 
@@ -199,24 +304,67 @@ def baixar_arquivos_csv(pasta_id):
     for file_id in arquivos_processados:
         excluir_arquivo(file_id)
 
-    return df_combinado
-    
+    # Salvar localmente como CSV (visível por todos que acessarem o app)
+    df_combinado.to_parquet("dados_combinados.parquet", index=False)
+    df_combinado_1.to_parquet("dados_complementares.parquet", index=False)
+
+    return df_combinado, df_combinado_1
+
+
+def salvar_hora_atualizacao():
+    with open("ultima_atualizacao.json", "w") as f:
+        json.dump({"ultima_atualizacao": time.strftime('%Y-%m-%d %H:%M:%S')}, f)
+
+
+def carregar_hora_atualizacao():
+    try:
+        if os.path.exists("ultima_atualizacao.json"):
+            with open("ultima_atualizacao.json", "r") as f:
+                data = json.load(f)
+                return data.get("ultima_atualizacao")
+    except:
+        pass
+    return None
+
+def carregar_dados_salvos():
+    try:
+        if os.path.exists("dados_combinados.parquet") and os.path.exists("dados_complementares.parquet"):
+            df_principal = pd.read_parquet("dados_combinados.parquet")
+            df_complementar = pd.read_parquet("dados_complementares.parquet")
+            return {
+                "principal": df_principal,
+                "complementar": df_complementar
+            }
+    except Exception as e:
+        st.warning(f"Erro ao carregar dados salvos: {e}")
+    return None
+
 
 # Verificar se os dados já estão salvos no session_state
 if "dados" not in st.session_state:
-    st.session_state.dados = None  # Inicializar com None
+    st.session_state.dados = carregar_dados_salvos()
 if "ultima_atualizacao" not in st.session_state:
-    st.session_state.ultima_atualizacao = None  # Inicializar com None
+    st.session_state.ultima_atualizacao = carregar_hora_atualizacao()
+    
 
 # Função para processar e salvar os dados no session_state
-def processar_dados():
-    st.session_state.dados = baixar_arquivos_csv(PASTA_ID)  # Chama a função para baixar e processar os dados
-    st.session_state.ultima_atualizacao = time.strftime('%Y-%m-%d %H:%M:%S')  # Armazenar a hora da última atualização
-    st.success("📝 Dados carregados e salvos na memória.")
+#def processar_dados():
+#    st.session_state.dados = baixar_arquivos_csv(PASTA_ID)  # Chama a função para baixar e processar os dados
+#    st.session_state.ultima_atualizacao = time.strftime('%Y-%m-%d %H:%M:%S')  # Armazenar a hora da última atualização
+#    st.success("📝 Dados carregados e salvos na memória.")
 
 # Função para formatar os valores como R$ (Reais)
 def formatar_real(valor):
+    if pd.isna(valor): return ""
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+def aplicar_formatacao_moeda(df, colunas):
+    for col in colunas:
+        df[col] = pd.to_numeric(
+            df[col].astype(str).str.replace(r"[^\d,]", "", regex=True).str.replace(",", "."),
+            errors="coerce"
+        )
+    return df
 
 def formatar_data_br(data):
     if data:
@@ -225,6 +373,7 @@ def formatar_data_br(data):
             data = datetime.strptime(data, "%Y-%m-%d %H:%M:%S")  # Ajuste conforme o formato da sua string
         return data.strftime("%d/%m/%Y %H:%M")
     return ""
+
 
 
 def calcular_execucao(df):
@@ -288,11 +437,21 @@ st.markdown('<div class="title">📊 Painel de Gestão Orçamentária</div>', un
 with st.sidebar:
     if st.button("Atualizar Dados"):
         with st.spinner("Atualizando dados..."):
-            processar_dados()  # Atualiza os dados quando o botão for pressionado
+            df_principal, df_complementar = baixar_arquivos_csv(PASTA_ID)
+            
+            # Armazena os dois DataFrames separadamente no session_state
+            st.session_state.dados = {
+                "principal": df_principal,
+                "complementar": df_complementar
+            }
+            st.session_state.ultima_atualizacao = time.strftime('%Y-%m-%d %H:%M:%S')
+            salvar_hora_atualizacao()
+            st.success("✅ Dados atualizados!")  # Atualiza os dados quando o botão for pressionado
 
 # Verificar se os dados estão carregados no session_state
 if st.session_state.dados is not None:
-    df_local = st.session_state.dados
+    df_local = st.session_state.dados["principal"]
+    df_complementares = st.session_state.dados["complementar"]
     
     # Exibir a hora da última atualização com formatação brasileira
     if st.session_state.ultima_atualizacao:
@@ -324,12 +483,12 @@ if st.session_state.dados is not None:
     if contrato != "Selecione um contrato":
             
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("💰 Valor Anual", formatar_real(df_local['Valor Anual'].sum()))
+            col1.metric("💰 Valor Anual", formatar_real(df_local['Valor Anual Proporcional'].sum()))
             col2.metric("💰 Valor Empenhado", formatar_real(df_local['Valor Empenhado'].sum()))
             col3.metric("💵 Valor Pago", formatar_real(df_local['Valor Pago'].sum()))
             with col4:
                 # Cálculo da diferença entre o valor anual e o valor empenhado
-                df_local['Diferença'] = df_local['Valor Empenhado'] - df_local['Valor Anual']
+                df_local['Diferença'] = df_local['Valor Empenhado'] - df_local['Valor Anual Proporcional']
 
                 # Calcular o total de valores a serem anulados ou reforçados
                 valor_anular = df_local[df_local['Diferença'] > 0]['Diferença'].sum()
@@ -352,239 +511,440 @@ if st.session_state.dados is not None:
             df_contrato = calcular_execucao(df_contrato)
             
 
+            col1, col2 = st.columns([1, 1])
 
-            col1, col2 = st.columns([1,1])
-            with col1:        
-                # Exibir gráficos e dados para o contrato selecionado
-                st.subheader(f"📊 Detalhes do Contrato: {contrato}")
+            with col1:
+                st.subheader(f"📄 Detalhes do Contrato: {contrato}")
                 
-                # Aqui você pode adicionar dados complementares do contrato (ex: valores totais)
+                # Exibir informações do contrato
                 contrato_info = df_local[df_local["Contrato"] == contrato].iloc[0]
                 contrato_info_perc = df_contrato[df_contrato["Contrato"] == contrato].iloc[0]
-                st.write(f"Região: {contrato_info['Regiao']}")
-                st.write(f"Objeto: {contrato_info['Objeto']}")
-                st.write(f"Valor Mensal: {formatar_real(contrato_info['Valor Mensal'])}")
-                st.write(f"Status Repactuação/Reajuste: {(contrato_info['Status'])}")
-                st.write(f"🔹 **Execução do Valor Anual (Pago / Anual):** {contrato_info_perc['Execucao Percentual (Anual)']:.2f}%")
-                st.write(f"🔹 **Execução do Valor Empenhado (Pago / Empenhado):** {contrato_info_perc['Execucao Percentual (Empenhado)']:.2f}%")
-                st.write(f"🔹 **Percentual Faltante de Empenho (Falta para Anual):** {contrato_info_perc['Percentual Faltante de Empenho']:.2f}%")
-            
-            with col2: 
-            # Gráfico de barras para mostrar o valor anual, empenhado e pago
-                st.subheader("📊 Comparação de Valores: Anual, Empenhado e Pago")
-                fig_valores = px.bar(
-                    x=["Valor Anual", "Valor Empenhado", "Valor Pago"], 
-                    y=[contrato_info["Valor Anual"], contrato_info["Valor Empenhado"], contrato_info["Valor Pago"]],
-                    labels={"x": "Tipo de Valor", "y": "Valor (R$)"},
-                    title="Comparação de Valores: Anual, Empenhado e Pago",
-                    color=["Valor Anual", "Valor Empenhado", "Valor Pago"],
-                    color_discrete_map={
-                        "Valor Anual": "#2ca02c", 
-                        "Valor Empenhado": "#1f77b4", 
-                        "Valor Pago": "#ff7f0e"
-                    }
+
+                st.markdown(
+                    f"""
+                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 12px; box-shadow: 0px 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px;">
+                        <p><strong>📍 Região:</strong> {contrato_info['Regiao']}</p>
+                        <p><strong>📦 Objeto:</strong> {contrato_info['Objeto']}</p>
+                        <p><strong>💸 Valor Mensal:</strong> {formatar_real(contrato_info['Valor Mensal'])}</p>
+                        <p><strong>🔄 Status Repactuação/Reajuste:</strong> {contrato_info['Status']}</p>
+                        <hr>
+                        <p><strong>📊 Execução do Valor Anual:</strong> {contrato_info_perc['Execucao Percentual (Anual)']:.2f}%</p>
+                        <p><strong>📊 Execução do Valor Empenhado:</strong> {contrato_info_perc['Execucao Percentual (Empenhado)']:.2f}%</p>
+                        <p><strong>📉 Percentual Faltante de Empenho:</strong> {contrato_info_perc['Percentual Faltante de Empenho']:.2f}%</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
                 )
 
-                # Ajustes de layout para o gráfico
-                # Criar texto formatado para cada barra
-                for i, trace in enumerate(fig_valores.data):
-                    trace.text = [formatar_real(val) for val in trace.y]
+                dados_complementares = df_complementares[(df_complementares["É Complementar"] == True) & (df_complementares["Contrato"] == contrato)]
+                
+                if not dados_complementares.empty:
+                    with st.expander("🔍 Unidades Vinculadas / Dados Complementares"):
+                        st.markdown("Esses dados representam unidades vinculadas ao contrato selecionado:")
+
+                        for _, row in dados_complementares.iterrows():
+                            regiao = row["Regiao"]
+                            objeto = row["Objeto"]
+                            nota = row["Nota Empenho"]
+                            valor_empenhado = formatar_real(row["Valor Empenhado"])
+                            valor_pago = formatar_real(row["Valor Pago"])
+                            valor_mensal = formatar_real(row["Valor Mensal"])
+
+                            col3, col4 = st.columns([3, 2])
+                            with col3:
+                                st.markdown(f"""
+                                    <div style="background-color: #eef2f7; padding: 12px; border-radius: 10px; margin-bottom: 10px;">
+                                        <h5 style="margin-bottom: 5px;">📍 {regiao}</h5>
+                                        <p style="margin: 0;"><strong>Objeto:</strong> {objeto}</p>
+                                        <p style="margin: 0;"><strong>Nota de Empenho:</strong> {nota}</p>
+                                    </div>
+                                """, unsafe_allow_html=True)
+                            with col4:
+                                st.markdown(f"""
+                                    <div style="background-color: #e0f7e9; padding: 12px; border-radius: 10px; margin-bottom: 10px;">
+                                        <p style="margin: 0;"><strong>💰 Empenhado:</strong> {valor_empenhado}</p>
+                                        <p style="margin: 0;"><strong>✅ Pago:</strong> {valor_pago}</p>
+                                        <p style="margin: 0;"><strong>📆 Valor Mensal:</strong> {valor_mensal}</p>
+                                    </div>
+                                """, unsafe_allow_html=True)
+
+            with col2:
+                st.subheader("📊 Comparativo Anual, Empenhado e Pago")
+
+                fig_valores = px.bar(
+                    x=["Valor Anual", "Valor Empenhado", "Valor Pago"],
+                    y=[contrato_info["Valor Anual"], contrato_info["Valor Empenhado"], contrato_info["Valor Pago"]],
+                    labels={"x": "Tipo de Valor", "y": "Valor (R$)"},
+                    color=["Valor Anual", "Valor Empenhado", "Valor Pago"],
+                    color_discrete_map={
+                        "Valor Anual": "#2ca02c",
+                        "Valor Empenhado": "#1f77b4",
+                        "Valor Pago": "#ff7f0e"
+                    },
+                    text=[formatar_real(contrato_info["Valor Anual"]),
+                        formatar_real(contrato_info["Valor Empenhado"]),
+                        formatar_real(contrato_info["Valor Pago"])]
+                )
+
                 fig_valores.update_layout(
                     height=400,
                     xaxis_title="Tipo de Valor",
                     yaxis_title="Valor (R$)",
                     showlegend=False,
-                    bargap=0.2  # Espaçamento entre as barras
+                    bargap=0.25,
+                    plot_bgcolor="#ffffff",
+                    paper_bgcolor="#ffffff"
                 )
+                st.plotly_chart(fig_valores, use_container_width=True)
 
-                # Exibir o gráfico de comparação de valores
-                st.plotly_chart(fig_valores)
-
-
-
-                # Converter as colunas de meses em uma única coluna de "Mês"
+            # Gráfico mês a mês
             meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
-            
-            # Transformar as colunas de meses em um formato longo
             df_melt = df_local.melt(id_vars=["Contrato", "Regiao"], value_vars=meses, var_name="Mês", value_name="Valor Pago Mensal")
-            
-            # Agrupar os dados por contrato e mês para calcular os valores pagos
             df_pagamento = df_melt.groupby(["Contrato", "Mês"], as_index=False)["Valor Pago Mensal"].sum()
-
-            # Ordenar os meses com base na lista meses_ordem
             df_pagamento["Mês"] = pd.Categorical(df_pagamento["Mês"], categories=meses, ordered=True)
             df_pagamento = df_pagamento.sort_values("Mês")
 
-            # Gráfico de barras de pagamento mês a mês
-            st.subheader("📊 Pagamento Mês a Mês por Contrato")
+            st.subheader("📆 Pagamentos Mensais por Contrato")
             fig_pagamento = px.bar(
                 df_pagamento,
                 x="Mês",
                 y="Valor Pago Mensal",
                 color="Contrato",
-                title="Pagamentos Mês a Mês por Contrato",
                 labels={"Mês": "Mês", "Valor Pago Mensal": "Valor Pago (R$)"},
-                barmode="group"
-            )
-
-            for i, trace in enumerate(fig_pagamento.data):
-                    trace.text = [formatar_real(val) for val in trace.y]
-            fig_pagamento.update_layout(
+                barmode="group",
                 
+            )
+            # Adicionar valores formatados nas barras
+            for trace in fig_pagamento.data:
+                trace.text = [formatar_real(val) for val in trace.y]
+                trace.textposition = "outside"
+
+            fig_pagamento.update_layout(
                 height=500,
                 xaxis_title="Mês",
                 yaxis_title="Valor Pago (R$)",
-                showlegend=True
+                plot_bgcolor="#ffffff",
+                paper_bgcolor="#ffffff"
             )
 
-            # Exibir o gráfico de pagamento
-            st.plotly_chart(fig_pagamento)
+            st.plotly_chart(fig_pagamento, use_container_width=True)
+
+            ### GRÁFICO DE EVOLUÇÃO MÊS A MÊS COM O VALOR ANUAL 
+            valor_mensal_total = df_local["Valor Mensal"].sum()
+
+            # Acumulado mês a mês do valor anual
+            valor_anual_acumulado = [valor_mensal_total * (i + 1) for i in range(12)]
+
+            # Agrupar total pago por mês (já está feito, só precisamos acumular)
+            valores_pagos_mensais = df_pagamento.groupby("Mês")["Valor Pago Mensal"].sum().reindex(meses, fill_value=0)
+            valores_pagos_acumulados = valores_pagos_mensais.cumsum().tolist()
+
+            st.subheader("📈 Evolução Mês a Mês - Valor Anual vs. Valor Pago")
+
+            # Opção para escolher o tipo de gráfico
+            tipo_grafico = st.radio("Tipo de Gráfico", ["📊 Barras", "📈 Linha"], horizontal=True)
+
+            # Calcular a evolução do valor anual proporcional acumulado por mês
+            df_evolucao = df_local.copy()
+            meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+            df_evolucao_melt = df_evolucao.melt(id_vars=["Contrato"], value_vars=meses, var_name="Mês", value_name="Valor Pago Mensal")
+            df_pagamento = df_evolucao_melt.groupby("Mês", as_index=False)["Valor Pago Mensal"].sum()
+            df_pagamento["Mês"] = pd.Categorical(df_pagamento["Mês"], categories=meses, ordered=True)
+            df_pagamento = df_pagamento.sort_values("Mês")
+            df_pagamento["Valor Pago Acumulado"] = df_pagamento["Valor Pago Mensal"].cumsum()
+
+            # Valor anual acumulado mês a mês
+            valor_mensal_total = df_evolucao["Valor Mensal"].sum()
+            df_pagamento["Valor Anual Acumulado"] = [(i + 1) * valor_mensal_total for i in range(len(df_pagamento))]
+
+            # Criar gráfico dinâmico com base na seleção
+            if tipo_grafico == "📊 Barras":
+                fig = go.Figure()
+                # Primeiro o Valor Anual Acumulado (fica à esquerda nas barras agrupadas)
+                fig.add_trace(go.Bar(
+                    x=df_pagamento["Mês"],
+                    y=df_pagamento["Valor Anual Acumulado"],
+                    name="Valor Anual Acumulado",
+                    marker_color="#2ca02c",
+                    text=[formatar_real(v) for v in df_pagamento["Valor Anual Acumulado"]],
+                    textposition="outside"
+                ))
+                
+                # Depois o Valor Pago (fica à direita)
+                fig.add_trace(go.Bar(
+                    x=df_pagamento["Mês"],
+                    y=df_pagamento["Valor Pago Acumulado"],
+                    name="Valor Pago",
+                    marker_color="#1f77b4",
+                    text=[formatar_real(v) for v in df_pagamento["Valor Pago Acumulado"]],
+                    textposition="outside"
+                ))
+                
+                fig.update_layout(barmode="group")
+            else:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df_pagamento["Mês"],
+                    y=df_pagamento["Valor Pago Acumulado"],
+                    mode='lines+markers',
+                    name="Valor Pago Acumulado",
+                    line=dict(color="#1f77b4", width=3),
+                    fill='tozeroy',  # preenche do valor até o eixo X
+                    fillcolor="rgba(31, 119, 180, 0.2)",
+                    hovertemplate='<b>Valor Pago</b><br>Mês: %{x}<br>R$ %{y:,.2f}<extra></extra>'
+                ))
+
+                fig.add_trace(go.Scatter(
+                    x=df_pagamento["Mês"],
+                    y=df_pagamento["Valor Anual Acumulado"],
+                    mode='lines+markers',
+                    name="Valor Anual Acumulado",
+                    line=dict(color="#2ca02c", width=3, dash='dash'),
+                    fill='tonexty',  # empilha a área acima da anterior
+                    fillcolor="rgba(44, 160, 44, 0.2)",
+                    hovertemplate='<b>Valor Anual</b><br>Mês: %{x}<br>R$ %{y:,.2f}<extra></extra>'
+                ))
+                fig.update_traces(hovertemplate='%{customdata}')
+                for trace in fig.data:
+                    trace.customdata = [[
+                        f"R$ {v:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".")
+                    ] for v in trace.y]
+                fig.update_layout(hovermode="x unified")
+            # Layout padrão
+            fig.update_layout(
+                title="Evolução Mensal de Valores",
+                xaxis_title="Mês",
+                yaxis_title="Valor (R$)",
+                height=500,
+                plot_bgcolor="#ffffff",
+                paper_bgcolor="#ffffff",
+                
+                legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+
+
+
+
+
+
     else:
-        col1, col2, col3, col4, col5 = st.columns([1,2,2,2,2])
-        col1.metric("Total de Contratos:", len(df_local))
+        # Cálculo da diferença
+        df_local['Diferença'] = df_local['Valor Empenhado'] - df_local['Valor Anual Proporcional']
+        
+        valor_anular = df_local[df_local['Diferença'] > 0]['Diferença'].sum()
+        valor_reforcar = df_local[df_local['Diferença'] < 0]['Diferença'].sum()
+
+        # Métricas principais
+        col1, col2, col3, col4, col5 = st.columns([1, 2, 2, 2, 2])
+        col1.metric("Total de Contratos", len(df_local))
         col2.metric("💰 Valor Anual Total", formatar_real(df_local['Valor Anual'].sum()))
         col3.metric("💰 Valor Empenhado Total", formatar_real(df_local['Valor Empenhado'].sum()))
         col4.metric("💵 Valor Pago Total", formatar_real(df_local['Valor Pago'].sum()))
+
         with col5:
-            # Cálculo da diferença entre o valor anual e o valor empenhado
-            df_local['Diferença'] = df_local['Valor Empenhado'] - df_local['Valor Anual']
-
-            # Calcular o total de valores a serem anulados ou reforçados
-            valor_anular = df_local[df_local['Diferença'] > 0]['Diferença'].sum()
-            valor_reforcar = df_local[df_local['Diferença'] < 0]['Diferença'].sum()
-
-            # Mostrar os valores de reforço ou anulação, com as cores adequadas
             if valor_reforcar < 0:
-                st.metric("⚠️ Ação Necessária - Reforçar",
-                        formatar_real(abs(valor_reforcar)),"Reforçar",
-                        delta_color="inverse")  # 'inverse' para destacar como algo negativo (precisa reforçar)
+                st.metric("⚠️ Reforço Necessário", formatar_real(abs(valor_reforcar)), "Reforçar", delta_color="inverse")
             else:
-                st.metric("✅ Ação Necessária - Anular",
-                        formatar_real(abs(valor_anular)),"Anular",
-                        delta_color="normal")  # 'normal' para algo positivo (pode anular)
+                st.metric("✅ Valor a Anular", formatar_real(valor_anular), "Anular", delta_color="normal")
 
-        # Ordenar as regiões pelo maior valor empenhado
-        # Agrupar e somar os valores de "Valor Empenhado", "Valor Pago" e "Valor Anual" por região
-        col1, col2 = st.columns([1,1])
-        with col1:
-            st.subheader("📊 Comparação por Região")
-            # Agrupar os dados
-            df_grafico = df_local.groupby("Regiao", as_index=False)[["Valor Anual", "Valor Empenhado", "Valor Pago"]].sum()
+        # --- Tabs ---
+        tab1, tab2 = st.tabs(["📌 Resumo Geral", "📉 Rescisões"])
 
-            # Ordenar as regiões pelo maior valor empenhado
-            df_grafico = df_grafico.sort_values(by="Valor Empenhado", ascending=False)
+        # ========== TAB 1 ==========
+        with tab1:
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.subheader("📊 Comparação por Região")
+                df_regiao = df_local.groupby("Regiao", as_index=False)[["Valor Anual", "Valor Empenhado", "Valor Pago"]].sum()
+                df_regiao = df_regiao.sort_values(by="Valor Empenhado", ascending=False)
+
+                fig = px.bar(
+                    df_regiao,
+                    x="Regiao",
+                    y=["Valor Anual", "Valor Empenhado", "Valor Pago"],
+                    barmode="group",
+                    title="💰 Comparação de Valores por Região",
+                    color_discrete_map={
+                        "Valor Anual": "#2ca02c",
+                        "Valor Empenhado": "#1f77b4",
+                        "Valor Pago": "#ff7f0e"
+                    }
+                )
+
+                fig.update_layout(
+                    xaxis_title="Região",
+                    yaxis_title="Valor (R$)",
+                    bargap=0.15,
+                    height=500
+                )
+
+                for trace in fig.data:
+                    trace.text = [formatar_real(v) for v in trace.y]
+
+                st.plotly_chart(fig)
+
+            with col2:
+                st.subheader("📊 Comparação por Objeto")
+                df_objeto = df_local.groupby("Fonte", as_index=False)[["Valor Anual", "Valor Empenhado", "Valor Pago"]].sum()
+                df_objeto = df_objeto.sort_values(by="Valor Empenhado", ascending=False)
+
+                fig_obj = px.bar(
+                    df_objeto,
+                    x="Fonte",
+                    y=["Valor Anual", "Valor Empenhado", "Valor Pago"],
+                    barmode="group",
+                    title="💰 Comparação de Valores por Objeto",
+                    color_discrete_map={
+                        "Valor Anual": "#2ca02c",
+                        "Valor Empenhado": "#1f77b4",
+                        "Valor Pago": "#ff7f0e"
+                    }
+                )
+
+                limite = df_objeto[["Valor Anual", "Valor Empenhado", "Valor Pago"]].mean().mean()
+
+                for trace in fig_obj.data:
+                    trace.text = [formatar_real(val) for val in trace.y]
+                    trace.textposition = ["outside" if val < limite else "inside" for val in trace.y]
+
+                fig_obj.update_layout(
+                    xaxis_title="Objeto",
+                    yaxis_title="Valor (R$)",
+                    bargap=0.15,
+                    height=500
+                )
+
+                st.plotly_chart(fig_obj, use_container_width=True)
+
+            # Destaque sobre contratos rescindidos
+            rescisoes = df_local[df_local["Ocorrência"].str.lower() == "rescisão"].copy()
+            rescisoes["Valor a Anular"] = rescisoes["Valor Empenhado"] - rescisoes["Valor Anual Proporcional"]
+            valor_total_anular = rescisoes["Valor a Anular"].sum()
+
+            st.markdown(f"""
+            ### 💡 IMPORTANTE
+            - **{len(rescisoes)} contratos rescindidos** foram identificados.
+            - Valor total a anular: 🟢 **{formatar_real(valor_total_anular)}**
+            > *Esse valor pode ser realocado ou economizado.*
+            """)
+
+        # ========== TAB 2 ==========
+        with tab2:
+            df_fmt = df_local.copy()
+            df_fmt = aplicar_formatacao_moeda(df_fmt, ["Valor Empenhado", "Valor Pago", "Valor Anual Proporcional"])
+            rescisoes["Valor a Anular"] = rescisoes["Valor Empenhado"] - rescisoes["Valor Anual Proporcional"]
+
+            anular = rescisoes[rescisoes["Valor a Anular"] > 0]
+            reforcar = rescisoes[rescisoes["Valor a Anular"] < 0]
+
+            total_anular = anular["Valor a Anular"].sum()
+            total_reforcar = reforcar["Valor a Anular"].sum()
+
+            # --- Cards informativos ---
+            st.markdown(f"""
+            <style>
+            .card-container {{
+                display: flex;
+                gap: 1rem;
+                margin-top: 10px;
+                margin-bottom: 5px;
+            }}
+            .card {{
+                flex: 1;
+                padding: 1rem;
+                border-radius: 1rem;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                color: white;
+                text-align: center;
+                font-size: 1.2rem;
+                font-weight: bold;
+            }}
+            .card.green {{
+                background: linear-gradient(135deg, #2e7d32, #66bb6a);
+            }}
+            .card.red {{
+                background: linear-gradient(135deg, #c62828, #ef5350);
+            }}
+            </style>
+            <div class="card-container">
+                <div class="card green">
+                    ✅ Valor Passível de Anulação<br>
+                    <span style="font-size: 1.6rem;">{formatar_real(total_anular)}</span>
+                </div>
+                <div class="card red">
+                    ⚠️ Valor Necessário de Reforço<br>
+                    <span style="font-size: 1.6rem;">{formatar_real(abs(total_reforcar))}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
             
+            # Função para gerar os cards lado a lado
+            def mostrar_contratos_em_cards(dados, titulo="🔻 Contratos com valor a anular"):
+                st.markdown(f"## {titulo}")
+                num_colunas = 2  # Quantos cards por linha
+                total_linhas = math.ceil(len(dados) / num_colunas)
 
-            # Criar o gráfico de barras para mostrar as somas totais
-            fig = px.bar(
-                df_grafico,
-                x="Regiao",
-                y=["Valor Anual", "Valor Empenhado", "Valor Pago"],
-                barmode="group",
-                title="💰 Comparação de Valores Empenhados, Pagos e Anuais por Região",  # Habilita a exibição automática dos valores
-                color_discrete_map={
-                    "Valor Empenhado": "#1f77b4",
-                    "Valor Pago": "#ff7f0e",
-                    "Valor Anual": "#2ca02c",  # Cor verde para o valor anual
-                }
+                for i in range(total_linhas):
+                    cols = st.columns(num_colunas)
+                    for j in range(num_colunas):
+                        idx = i * num_colunas + j
+                        if idx < len(dados):
+                            row = dados.iloc[idx]
+                            with cols[j]:
+                                st.markdown(f"""
+                                <div style="
+                                    background-color: #f1f8e9;
+                                    border-left: 5px solid #558b2f;
+                                    padding: 15px;
+                                    border-radius: 12px;
+                                    box-shadow: 2px 2px 8px rgba(0,0,0,0.05);
+                                    margin-bottom: 15px;
+                                ">
+                                    <h4 style="margin-top: 0;">📄 Contrato {row['Contrato']}</h4>
+                                    <p><b>📍 Região:</b> {row['Regiao']}</p>
+                                    <p><b>🎯 Objeto:</b> {row['Objeto']}</p>
+                                    <p><b>💰 Valor Empenhado:</b> {formatar_real(row['Valor Empenhado'])}</p>
+                                    <p><b>📊 Valor Anual:</b> {formatar_real(row['Valor Anual Proporcional'])}</p>
+                                    <p style="color: green; font-size: 16px;"><b>🔻 Valor a Anular:</b> {formatar_real(row['Valor a Anular'])}</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+            # Exemplo de uso:
+            mostrar_contratos_em_cards(anular)
+
+            st.markdown("""
+            <div style='margin-top: 10px; background-color: #e8f5e9; padding: 10px; border-left: 5px solid #2e7d32'>
+            💡 Esses contratos apresentam saldo a ser devolvido devido à rescisão antecipada.
+            </div>
+            """, unsafe_allow_html=True)
+
+            # --- Tabela: Reforço ---
+            st.subheader("⚠️ Contratos que Excederam o Proporcional")
+            reforcar_fmt = reforcar.copy()
+            for col in ["Valor Empenhado", "Valor Anual Proporcional", "Valor a Anular"]:
+                reforcar_fmt[col] = reforcar_fmt[col].apply(formatar_real)
+
+            st.dataframe(
+                reforcar_fmt[["Regiao", "Contrato", "Objeto", "Valor Empenhado", 
+                            "Valor Anual Proporcional", "Valor a Anular", "Data de Ocorrência"]],
+                use_container_width=True
             )
 
-            # Criar texto formatado para cada barra
-            for i, trace in enumerate(fig.data):
-                trace.text = [formatar_real(val) for val in trace.y]
+            st.markdown("""
+            <div style='margin-top: 10px; background-color: #ffebee; padding: 10px; border-left: 5px solid #c62828'>
+            ⚠️ Estes contratos consumiram mais do que o proporcional até a data da rescisão. Avaliar possível reforço ou erro no empenho.
+            </div>
+            """, unsafe_allow_html=True)
 
-            # Ajustes para facilitar a leitura
-            fig.update_layout(
-                xaxis_title="Região",
-                yaxis_title="Valor (R$)",
-                legend_title="Tipo de Valor",
-                uniformtext_minsize=10,
-                uniformtext_mode="hide",
-                bargap=0.15,  # Espaçamento entre os grupos de barras
-                height=500,  # Definir altura do gráfico para melhor visualização # Centrar o título do gráfico
-            )
-
-            # Exibir o gráfico
-            st.plotly_chart(fig)
-
-
-        with col2:
-            # --- Bloco 2: Comparação por Objeto ---
-            st.subheader("📊 Comparação por Objeto")
-
-            # Agrupar os dados por Objeto (Fonte)
-            df_grafico_objeto = df_local.groupby("Fonte", as_index=False)[["Valor Anual", "Valor Empenhado", "Valor Pago"]].sum()
-
-            # Ordenar os objetos pelo maior valor empenhado
-            df_grafico_objeto = df_grafico_objeto.sort_values(by="Valor Empenhado", ascending=False)
-
-            
-
-            # Criar o gráfico por Objeto
-            fig_objeto = px.bar(
-                df_grafico_objeto,
-                x="Fonte",
-                y=["Valor Anual", "Valor Empenhado", "Valor Pago"],
-                barmode="group",
-                title="💰 Comparação de Valores Empenhados, Pagos e Anuais por Objeto",
-                
-                color_discrete_map={
-                    "Valor Empenhado": "#1f77b4",
-                    "Valor Pago": "#ff7f0e",
-                    "Valor Anual": "#2ca02c",
-                }
-            )
-
-            # Definir um limite baseado na média dos valores para ajustar a posição
-            limite = df_grafico_objeto[["Valor Anual", "Valor Empenhado", "Valor Pago"]].mean().mean()
-
-            # Ajustar a posição do texto: fora para valores pequenos, dentro para valores grandes
-            for trace in fig_objeto.data:
-                valores = trace.y  # Lista de valores
-                trace.text = [formatar_real(val) for val in valores]  # Formata os valores
-                trace.textposition = ["outside" if val < limite else "inside" for val in valores]
-    
-
-            # Ajustes para facilitar a leitura
-            fig_objeto.update_layout(
-                xaxis_title="Objeto",
-                yaxis_title="Valor (R$)",
-                legend_title="Tipo de Valor",
-                uniformtext_minsize=10,
-                uniformtext_mode="hide",
-                bargap=0.15,  # Espaçamento entre os grupos de barras
-                height=500,  # Definir altura do gráfico para melhor visualização # Centrar o título do gráfico
-            )
-
-            # Exibir o gráfico de Objeto
-            st.plotly_chart(fig_objeto, use_container_width=True)
-            
-        st.write("__")
-
-        # 1. Top 5 contratos com maior valor empenhado
-        top_5_valor_empenhado = df_local[['Contrato', 'Objeto', 'Valor Empenhado', "Valor Anual"]].sort_values(by='Valor Empenhado', ascending=False).head(5)
-        top_5_valor_empenhado['Valor Empenhado'] = top_5_valor_empenhado['Valor Empenhado'].apply(formatar_real)
-        top_5_valor_empenhado['Valor Anual'] = top_5_valor_empenhado['Valor Anual'].apply(formatar_real)
-        st.subheader("🔝 Top 5 Contratos com Maior Valor Empenhado")
-        st.write(top_5_valor_empenhado)
-
-        # 2. Top 5 contratos com maior valor anual
-        top_5_valor_anual = df_local[['Contrato', 'Objeto', 'Valor Empenhado', 'Valor Anual']].sort_values(by='Valor Anual', ascending=False).head(5)
-        top_5_valor_anual['Valor Anual'] = top_5_valor_anual['Valor Anual'].apply(formatar_real)
-        top_5_valor_anual['Valor Empenhado'] = top_5_valor_anual['Valor Empenhado'].apply(formatar_real)
-        st.subheader("🔝 Top 5 Contratos com Maior Valor Anual")
-        st.write(top_5_valor_anual)
-
-        # 3. Contratos com maior diferença entre o valor anual e o valor empenhado
-        df_local['Diferenca'] = df_local['Valor Anual'] - df_local['Valor Empenhado']
-        top_5_diferenca = df_local[['Contrato', 'Objeto', 'Valor Empenhado', 'Valor Anual', 'Diferenca']].sort_values(by='Diferenca', ascending=False).head(5)
-        top_5_diferenca['Diferenca'] = top_5_diferenca['Diferenca'].apply(formatar_real)
-        top_5_diferenca['Valor Anual'] = top_5_diferenca['Valor Anual'].apply(formatar_real)
-        top_5_diferenca['Valor Empenhado'] = top_5_diferenca['Valor Empenhado'].apply(formatar_real)
-        st.subheader("🔝 Top 5 Contratos com Maior Diferença (Valor Anual - Valor Empenhado)")
-        st.write(top_5_diferenca)
-   
+            # --- Exportação ---
+            st.markdown("📥 Baixar dados filtrados:")
+            csv = rescisoes.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
+            st.download_button("⬇️ Baixar CSV com todos os dados filtrados", data=csv, file_name="contratos_rescindidos.csv", mime="text/csv")
 
 
 else:
