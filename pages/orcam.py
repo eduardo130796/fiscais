@@ -183,8 +183,8 @@ def processar_planilhas(arquivo_base, arquivo_atualizacao, nome_arquivo_base):
     df_atualizacao = df_atualizacao[~df_atualizacao.apply(lambda row: row.astype(str).str.contains('Total').any(), axis=1)]
     df_atualizacao.ffill(inplace=True)
 
-    meses = {"jan": 12, "fev": 13, "mar": 14, "abr": 15, "mai": 16, "jun": 17,
-             "jul": 18, "ago": 19, "set": 20, "out": 21, "nov": 22, "dez": 23}
+    meses = {"jan": 15, "fev": 16, "mar": 17, "abr": 18, "mai": 19, "jun": 20,
+             "jul": 21, "ago": 22, "set": 23, "out": 24, "nov": 25, "dez": 26}
     meses_ingles_para_portugues = {'jan': 'jan', 'feb': 'fev', 'mar': 'mar', 'apr': 'abr', 'may': 'mai',
                                    'jun': 'jun', 'jul': 'jul', 'aug': 'ago', 'sep': 'set', 'oct': 'out',
                                    'nov': 'nov', 'dec': 'dez'}
