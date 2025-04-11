@@ -234,7 +234,7 @@ def processar_planilhas(arquivo_base, arquivo_atualizacao, nome_arquivo_base):
 
                     if any(status_texto.startswith(opcao.lower()) for opcao in status_aceitos):
                         soma_valores = "+".join(str(v).replace(",", ".") for v in valores_novos)
-                        nova_formula = f"=({soma_valores})+(({soma_valores})*AE6)"
+                        nova_formula = f"=({soma_valores})+(({soma_valores})*Am6)"
                     else:
                         soma_valores = "+".join(str(v).replace(",", ".") for v in valores_novos)
                         nova_formula = f"={soma_valores}" if len(valores_novos) > 1 else f"={valores_novos[0]}"
