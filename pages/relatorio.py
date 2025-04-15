@@ -12,6 +12,8 @@ import calendar
 import plotly.graph_objects as go
 from pages.config import carregar_configuracoes
 import math
+import matplotlib.pyplot as plt
+
 
 #st.set_page_config(layout="wide")
 
@@ -214,16 +216,11 @@ def preencher_valor_anual_proporcional(df, ano_referencia):
 
 
 
-def baixar_arquivos_csv(pasta_id):
+def baixar_arquivos_google_drive(arquivos):
     access_token = get_access_token()
-    arquivos = listar_arquivos(pasta_id)
-
-    df_combinado = pd.DataFrame()
-    df_combinado_1 = pd.DataFrame()
-
-    # Lista para armazenar os IDs dos arquivos processados
-    arquivos_processados = []
-
+    arquivos_download = []
+    
+    
     for arquivo in arquivos:
         file_id = arquivo["id"]
         file_name = arquivo["name"]
@@ -249,66 +246,152 @@ def baixar_arquivos_csv(pasta_id):
             response = requests.get(export_url, headers=headers)
             response.raise_for_status()  # Levanta uma exceção para status de erro
         except requests.exceptions.RequestException as e:
-            st.error(f"Erro ao baixar {file_name}: {e}")
+            print(f"Erro ao baixar {file_name}: {e}")
             continue
 
         if response.status_code == 200:
-            # Lê o CSV com pandas
-            df = pd.read_csv(io.StringIO(response.text), encoding='ISO-8859-1', sep=',', skiprows=4,dayfirst=True)  # Ignora as 4 primeiras linhas, se necessário
-            
-            df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
-            # Corrigir qualquer string mal codificada
-            df = df.applymap(lambda x: x.encode('latin1').decode('utf-8') if isinstance(x, str) else x)
-            # Mantém apenas as colunas até a coluna AC (coluna 29)
-            colunas_necessarias = df.columns[:31]  # Colunas até a 30ª (índice 29)
-            df = df[colunas_necessarias]
-            df_comple = df.copy()
-            coluna_contrato = df.columns[2]  # Coluna de contrato
-            df = df[df[coluna_contrato].notna()]
-            # Renomeando colunas para facilitar
-            df.columns = ["Regiao", "Processo", "Contrato", "Objeto", "Nota Empenho", "Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Status", "Ultima Repactuacao","Ocorrência","Data de Ocorrência", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Indice", "Evolucao", "Reajuste", "Reforço/Remanejamento",]
-            
-            # Convertendo valores financeiros
-            colunas_valores = ["Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Reforço/Remanejamento"]
-            for col in colunas_valores:
-                # Aplicar a função nas colunas de interesse
-                df[col] = df[col].apply(converter_monetario)
-            
-            df = preencher_valor_anual_proporcional(df, ano_referencia=2025)
-            df["Fonte"] = file_name  # Adiciona uma coluna com o nome do arquivo
-
-            df_combinado = pd.concat([df_combinado, df], ignore_index=True)
-            arquivos_processados.append(file_id)  # Armazena o ID do arquivo processado
-
-            coluna_contrato = df_comple.columns[2]  # Coluna de contrato
-            df_comple["É Complementar"] = df_comple[coluna_contrato].isna()
-            df_comple[coluna_contrato] = df_comple[coluna_contrato].ffill()
-            # Renomeando colunas para facilitar
-            df_comple.columns = ["Regiao", "Processo", "Contrato", "Objeto", "Nota Empenho", "Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Status", "Ultima Repactuacao","Ocorrência","Data de Ocorrência", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Indice", "Evolucao", "Reajuste", "Reforço/Remanejamento","É Complementar"]
-            
-            # Convertendo valores financeiros
-            colunas_valores = ["Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Reforço/Remanejamento"]
-            for col in colunas_valores:
-                # Aplicar a função nas colunas de interesse
-                df_comple[col] = df_comple[col].apply(converter_monetario)
-            
-            
-
-            df_comple["Fonte"] = file_name  # Adiciona uma coluna com o nome do arquivo
-            df_combinado_1 = pd.concat([df_combinado_1, df_comple], ignore_index=True)
-            
+            arquivos_download.append({
+                "id": file_id,
+                "name": file_name,
+                "conteudo": io.StringIO(response.text)
+            })
         else:
-            st.error(f"Erro ao baixar {file_name}: {response.text}")
+            print(f"Erro ao baixar {file_name}: {response.text}")
 
-    # Após processar todos os arquivos, excluir os arquivos processados
-    for file_id in arquivos_processados:
+    return arquivos_download
+
+def processar_dados_principais_csv():
+    arquivos = [
+    {"id": "1E2xiSA0VwiiqS04iHhvmiIP-5RyGJvDf", "name": "Vigilância.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+    {"id": "1bpsBDegUletMd07SjE0EpbX1zgjl_6zj", "name": "Locação de Imóvel.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+    {"id": "1iGlxRvoF5gjn6r0CUsyRVakmph6cXpD3", "name": "Limpeza e Conservação.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+    {"id": "1RPQADGPfy4b6hGtNMg-p6o93y3H6bJVO", "name": "Diversos.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+    {"id": "1-yM9S_yPYWmt3ozLkow6QIaJD31O8Huo", "name": "Ar condicionado.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+    # Outros arquivos
+    ]
+
+    arquivos_download = baixar_arquivos_google_drive(arquivos)
+
+    df_combinado = pd.DataFrame()
+    df_combinado_1 = pd.DataFrame()
+
+    # Processar cada arquivo baixado
+    for arquivo in arquivos_download:
+        file_id = arquivo["id"]
+        file_name = arquivo["name"]
+        arquivo_csv = arquivo["conteudo"]
+        df = pd.read_csv(arquivo_csv, encoding='ISO-8859-1', sep=',', skiprows=4, dayfirst=True)  # Ignora as 4 primeiras linhas, se necessário
+        
+        # Corrigir e limpar os dados
+        df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
+        df = df.applymap(lambda x: x.encode('latin1').decode('utf-8') if isinstance(x, str) else x)
+        
+        # Limitar as colunas
+        colunas_necessarias = df.columns[:31]  # Colunas até a 30ª (índice 29)
+        df = df[colunas_necessarias]
+        df_comple = df.copy()
+        coluna_contrato = df.columns[2]  # Coluna de contrato
+        df = df[df[coluna_contrato].notna()]
+        # Renomeando colunas
+        df.columns = ["Regiao", "Processo", "Contrato", "Objeto", "Nota Empenho", "Valor Empenhado", "Valor Pago", "Valor Global", 
+                      "Valor Anual", "Valor Mensal", "Status", "Ultima Repactuacao", "Ocorrência", "Data de Ocorrência", 
+                      "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", 
+                      "Indice", "Evolucao", "Reajuste", "Reforço/Remanejamento"]
+
+        # Convertendo valores financeiros
+        colunas_valores = ["Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Jan", "Fev", "Mar", 
+                           "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Reforço/Remanejamento"]
+        for col in colunas_valores:
+            df[col] = df[col].apply(converter_monetario)
+        
+        # Adicionando a coluna de fonte (nome do arquivo)
+        df = preencher_valor_anual_proporcional(df, ano_referencia=2025)
+        df["Fonte"] = file_name
+        
+        # Concatenar dados
+        df_combinado = pd.concat([df_combinado, df], ignore_index=True)
+
+        # Processamento complementar
+        coluna_contrato = df_comple.columns[2]  # Coluna de contrato
+        df_comple["É Complementar"] = df_comple[coluna_contrato].isna()
+        df_comple[coluna_contrato] = df_comple[coluna_contrato].ffill()
+        # Renomeando colunas para facilitar
+        df_comple.columns = ["Regiao", "Processo", "Contrato", "Objeto", "Nota Empenho", "Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Status", "Ultima Repactuacao","Ocorrência","Data de Ocorrência", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Indice", "Evolucao", "Reajuste", "Reforço/Remanejamento","É Complementar"]
+        
+        # Convertendo valores financeiros
+        colunas_valores = ["Valor Empenhado", "Valor Pago", "Valor Global", "Valor Anual", "Valor Mensal", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez", "Total Anual", "Reforço/Remanejamento"]
+        for col in colunas_valores:
+            # Aplicar a função nas colunas de interesse
+            df_comple[col] = df_comple[col].apply(converter_monetario)
+
+        df_comple["Fonte"] = file_name  # Adiciona uma coluna com o nome do arquivo
+        df_combinado_1 = pd.concat([df_combinado_1, df_comple], ignore_index=True)
+        
+
+        # Salvar os resultados
+        df_combinado.to_parquet("dados_combinados.parquet", index=False)
+        df_combinado_1.to_parquet("dados_complementares.parquet", index=False)
+
+    for arquivo in arquivos_download:
+        file_id = arquivo["id"]
         excluir_arquivo(file_id)
 
-    # Salvar localmente como CSV (visível por todos que acessarem o app)
-    df_combinado.to_parquet("dados_combinados.parquet", index=False)
-    df_combinado_1.to_parquet("dados_complementares.parquet", index=False)
-
     return df_combinado, df_combinado_1
+
+#baixaar planilha que tem a evolução do empenho
+def visualizar_empenhos_unicos():
+    arquivos = [
+    {"id": "1ff7-LmysSbjwGTUC0OiK4jQJP8NkHaY1", "name": "relatorio evolucao mes a mes.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+    ]# Lê o primeiro arquivo CSV baixado
+   
+    arquivos_download = baixar_arquivos_google_drive(arquivos)
+
+    df_raw = pd.read_csv(arquivos_download[0]["conteudo"], sep=",", skiprows=2)  # CSV convertido
+    print(df_raw)
+    # Define meses e tipos
+    meses = ["JAN/2025", "FEV/2025", "MAR/2025", "ABR/2025"]
+    tipos = [
+        "DESPESAS EMPENHADAS (CONTROLE EMPENHO)",
+        "DESPESAS EMPENHADAS A LIQUIDAR (CONTROLE EMP)",
+        "DESPESAS LIQUIDADAS (CONTROLE EMPENHO)"
+    ]
+
+    dados = []
+    for _, row in df_raw.iterrows():
+        nota = row.get("Unnamed: 0")
+        favorecido = row.get("Unnamed: 2")  # Nome pode variar conforme a planilha
+
+        for mes in meses:
+            for i, tipo in enumerate(tipos):
+                col_index = 3 + meses.index(mes) * 3 + i
+                if col_index < len(row):
+                    valor = row.iloc[col_index]
+
+                    if isinstance(valor, str):
+                        valor = valor.replace('.', '').replace(',', '.')
+                    try:
+                        valor = float(valor)
+                    except:
+                        valor = 0.0
+
+                    dados.append({
+                        "Nota de Empenho": nota,
+                        "Favorecido": favorecido,
+                        "Mês": mes,
+                        "Tipo de Métrica": tipo,
+                        "Valor (R$)": valor
+                    })
+
+    df = pd.DataFrame(dados)
+    print(df)
+    
+    df.to_parquet("dados_empenhos_evolucao.parquet", index=False)
+
+    return df
+
+
+
+
 
 
 def salvar_hora_atualizacao():
@@ -328,12 +411,14 @@ def carregar_hora_atualizacao():
 
 def carregar_dados_salvos():
     try:
-        if os.path.exists("dados_combinados.parquet") and os.path.exists("dados_complementares.parquet"):
+        if os.path.exists("dados_combinados.parquet") and os.path.exists("dados_complementares.parquet") and os.path.exists("dados_empenhos_evolucao.parquet"):
             df_principal = pd.read_parquet("dados_combinados.parquet")
             df_complementar = pd.read_parquet("dados_complementares.parquet")
+            df_evolucao_empenho = pd.read_parquet("dados_empenhos_evolucao.parquet")
             return {
                 "principal": df_principal,
-                "complementar": df_complementar
+                "complementar": df_complementar,
+                "evolucao": df_evolucao_empenho
             }
     except Exception as e:
         st.warning(f"Erro ao carregar dados salvos: {e}")
@@ -437,12 +522,14 @@ st.markdown('<div class="title">📊 Painel de Gestão Orçamentária</div>', un
 with st.sidebar:
     if st.button("Atualizar Dados"):
         with st.spinner("Atualizando dados..."):
-            df_principal, df_complementar = baixar_arquivos_csv(PASTA_ID)
+            df_principal, df_complementar = processar_dados_principais_csv()
+            df_evolucao_empenho = visualizar_empenhos_unicos()
             
             # Armazena os dois DataFrames separadamente no session_state
             st.session_state.dados = {
                 "principal": df_principal,
-                "complementar": df_complementar
+                "complementar": df_complementar,
+                "evolucao": df_evolucao_empenho
             }
             st.session_state.ultima_atualizacao = time.strftime('%Y-%m-%d %H:%M:%S')
             salvar_hora_atualizacao()
@@ -452,6 +539,7 @@ with st.sidebar:
 if st.session_state.dados is not None:
     df_local = st.session_state.dados["principal"]
     df_complementares = st.session_state.dados["complementar"]
+    df_evolucao_empenho = st.session_state.dados["evolucao"]
     
     # Exibir a hora da última atualização com formatação brasileira
     if st.session_state.ultima_atualizacao:
@@ -506,6 +594,7 @@ if st.session_state.dados is not None:
                     
 
             df_contrato = df_local[df_local['Contrato'] == contrato]
+            
     
             # Calcular a execução e os percentuais para o contrato selecionado
             df_contrato = calcular_execucao(df_contrato)
@@ -537,7 +626,7 @@ if st.session_state.dados is not None:
                 )
 
                 dados_complementares = df_complementares[(df_complementares["É Complementar"] == True) & (df_complementares["Contrato"] == contrato)]
-                
+                notas_acumulado=[]
                 if not dados_complementares.empty:
                     with st.expander("🔍 Unidades Vinculadas / Dados Complementares"):
                         st.markdown("Esses dados representam unidades vinculadas ao contrato selecionado:")
@@ -549,7 +638,7 @@ if st.session_state.dados is not None:
                             valor_empenhado = formatar_real(row["Valor Empenhado"])
                             valor_pago = formatar_real(row["Valor Pago"])
                             valor_mensal = formatar_real(row["Valor Mensal"])
-
+                            notas_acumulado.append(nota)
                             col3, col4 = st.columns([3, 2])
                             with col3:
                                 st.markdown(f"""
@@ -567,7 +656,7 @@ if st.session_state.dados is not None:
                                         <p style="margin: 0;"><strong>📆 Valor Mensal:</strong> {valor_mensal}</p>
                                     </div>
                                 """, unsafe_allow_html=True)
-
+                
             with col2:
                 st.subheader("📊 Comparativo Anual, Empenhado e Pago")
 
@@ -725,9 +814,126 @@ if st.session_state.dados is not None:
             st.plotly_chart(fig, use_container_width=True)
 
 
+            
+            # 🎯 Determinar a nota filtrada
+            # 🎯 Determinar a nota filtrada
+            if contrato_info["Nota Empenho"]:
+                nota_filtrada = [contrato_info["Nota Empenho"]]
+                print(nota_filtrada) # Uma lista de notas
+            else:
+                nota_filtrada =  notas_acumulado  # Um único valor
 
 
+            # Caso haja mais de uma nota, gere os gráficos para cada uma
+            for nota_item in nota_filtrada:
+                # Filtra novamente para cada nota individualmente
+                
+                df_filtrado = df_evolucao_empenho[
+                    df_evolucao_empenho["Nota de Empenho"].astype(str).str.contains(str(nota_item), na=False)
+                ]
 
+                df_resumo = df_filtrado.groupby(["Mês", "Tipo de Métrica"])["Valor (R$)"].sum().reset_index()
+                df_pivot = df_resumo.pivot(index="Mês", columns="Tipo de Métrica", values="Valor (R$)").fillna(0)
+
+                # Garante a ordem correta dos meses
+                ordem_meses = ["JAN/2025", "FEV/2025", "MAR/2025", "ABR/2025"]
+                df_pivot.index = pd.Categorical(df_pivot.index, categories=ordem_meses, ordered=True)
+                df_pivot = df_pivot.sort_index()
+
+                legenda_dict = {
+                    "DESPESAS EMPENHADAS (CONTROLE EMPENHO)": 'Empenhado',
+                    "DESPESAS EMPENHADAS A LIQUIDAR (CONTROLE EMP)": 'A Liquidar',
+                    "DESPESAS LIQUIDADAS (CONTROLE EMPENHO)": 'Liquidado'
+                }
+                st.subheader(f"📈 Evolução Mês a Mês - Empenho x A liquidar x Liquidado - (Nota de Empenho: {nota_item})")
+
+                # Opção para escolher o tipo de gráfico
+                tipo_grafico_empenho = st.radio("Tipo de Gráfico", ["📊 Barras", "📈 Linha"], horizontal=True, key=f"grafico_empenho_{nota_item}")
+                if tipo_grafico_empenho == "📊 Barras":
+                    # Plota o gráfico de barras com a ordem correta
+                    fig = go.Figure()
+                    cores = {
+                            
+                            "DESPESAS LIQUIDADAS (CONTROLE EMPENHO)": "green",  # Cor verde para "Liquidado"
+                        }
+                    # Adiciona cada coluna de df_pivot como um conjunto de barras
+                    for col in df_pivot.columns:
+                        cor = cores.get(col)
+                        fig.add_trace(go.Bar(
+                            x=df_pivot.index,  # Meses como eixo X
+                            y=df_pivot[col],  # Valores da métrica como eixo Y
+                            name=legenda_dict.get(col, col),
+                            text=[f"R$ {v:,.2f}" for v in df_pivot[col]],  # Formatação dos valores
+                            textposition="outside",
+                            marker_color=cor
+                        ))
+
+                        # Adicionar valores formatados nas barras
+                    for trace in fig.data:
+                        trace.text = [formatar_real(val) for val in trace.y]
+                        trace.textposition = "outside"
+
+                    # Atualiza o layout do gráfico de barras
+                    fig.update_layout(
+                        title=f"Evolução mês a mês — Nota de Empenho: {nota_item}",
+                        xaxis_title="Mês",
+                        yaxis_title="Valor (R$)",
+                        barmode="group",  # Agrupar as barras
+                        xaxis=dict(tickmode="array", tickvals=df_pivot.index),
+                        xaxis_tickangle=-45,  # Angulo das labels do eixo X
+                        height=500,
+                        plot_bgcolor="#ffffff",
+                        paper_bgcolor="#ffffff",
+                        legend_title="Tipo de Métrica",
+                    )
+
+                    # Exibe o gráfico de barras no Streamlit
+                    st.plotly_chart(fig, use_container_width=True, key=f"grafico_empenho_plotar_{nota_item}")
+                else:
+                    # Plota o gráfico de linha com a ordem correta
+                    fig = go.Figure()
+                    cores = {
+                            "DESPESAS LIQUIDADAS (CONTROLE EMPENHO)": "green",  # Cor verde para "Liquidado"
+                        }
+                    # Adiciona cada coluna de df_pivot como uma linha
+                    for col in df_pivot.columns:
+                        cor = cores.get(col)
+                        fig.add_trace(go.Scatter(
+                            x=df_pivot.index,  # Meses como eixo X
+                            y=df_pivot[col],  # Valores da métrica como eixo Y
+                            mode='lines+markers',  # Linha com marcadores
+                            name=legenda_dict.get(col, col),
+                            line=dict(width=3, color=cor),
+                            marker=dict(size=6),
+                            text=[f"R$ {v:,.2f}" for v in df_pivot[col]],  # Formatação dos valores
+                            hovertemplate='<b>' + legenda_dict.get(col, col) + '</b><br>Mês: %{x}<br>R$ %{y:,.2f}<extra></extra>'  # Corrigido aqui
+                        ))
+                    fig.update_traces(hovertemplate='%{customdata}')
+                    for trace in fig.data:
+                        trace.customdata = [[
+                            f"R$ {v:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".")
+                        ] for v in trace.y]
+                    fig.update_layout(hovermode="x unified")
+
+                    # Atualiza o layout do gráfico de linha
+                    fig.update_layout(
+                        title=f"Evolução mês a mês — Nota de Empenho: {nota_item}",
+                        xaxis_title="Mês",
+                        yaxis_title="Valor (R$)",
+                        height=500,
+                        plot_bgcolor="#ffffff",
+                        paper_bgcolor="#ffffff",
+                        legend_title="Tipo de Métrica",
+                        xaxis=dict(tickmode="array", tickvals=df_pivot.index, showgrid=True),  # Ativa o grid no eixo X
+                        yaxis=dict(showgrid=True),  # Ativa o grid no eixo Y
+                        xaxis_tickangle=-45,
+                    )
+
+                    # Exibe o gráfico de linha no Streamlit
+                    st.plotly_chart(fig, use_container_width=True)
+
+           
+           
 
 
     else:
