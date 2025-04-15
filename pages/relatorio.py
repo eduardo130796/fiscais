@@ -822,6 +822,7 @@ if st.session_state.dados is not None:
                 print(nota_filtrada) # Uma lista de notas
             else:
                 nota_filtrada =  notas_acumulado  # Um único valor
+                 print(nota_filtrada) # Uma lista de notas
 
 
             # Caso haja mais de uma nota, gere os gráficos para cada uma
