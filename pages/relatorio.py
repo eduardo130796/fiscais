@@ -817,7 +817,7 @@ if st.session_state.dados is not None:
             st.dataframe(dados_complementares)
             st.dataframe(df_evolucao_empenho)
 
-            if contrato_info["Nota Empenho"]:
+            if pd.notna(contrato_info["Nota Empenho"]) and str(contrato_info["Nota Empenho"]).strip() != "":
                 nota_filtrada = [str(contrato_info["Nota Empenho"]).strip()]
             else:
                 # Coletar notas das unidades complementares
