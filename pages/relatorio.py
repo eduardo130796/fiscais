@@ -814,7 +814,7 @@ if st.session_state.dados is not None:
             st.plotly_chart(fig, use_container_width=True)
 
 
-            
+            st.dataframe(df_evolucao_empenho)
             # 🎯 Determinar a nota filtrada
             # 🎯 Determinar a nota filtrada
             if contrato_info["Nota Empenho"]:
