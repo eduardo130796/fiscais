@@ -820,12 +820,13 @@ if st.session_state.dados is not None:
             if contrato_info["Nota Empenho"]:
                 nota_filtrada = [contrato_info["Nota Empenho"]]
                 st.write(nota_filtrada)
+                
                 #print(nota_filtrada) # Uma lista de notas
             else:
                 nota_filtrada =  notas_acumulado  # Um único valor
                 st.write(nota_filtrada)
                 #print(nota_filtrada) # Uma lista de notas
-
+            nota_filtrada=["NE000602","NE000628","NE000623"]
 
             # Caso haja mais de uma nota, gere os gráficos para cada uma
             for nota_item in nota_filtrada:
