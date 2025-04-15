@@ -383,10 +383,14 @@ def visualizar_empenhos_unicos():
                     })
 
     df = pd.DataFrame(dados)
-    print(df)
+   
     
     df.to_parquet("dados_empenhos_evolucao.parquet", index=False)
-
+    
+    for arquivo in arquivos_download:
+            file_id = arquivo["id"]
+            excluir_arquivo(file_id)
+        
     return df
 
 
