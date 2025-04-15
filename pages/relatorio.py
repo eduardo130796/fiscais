@@ -813,7 +813,7 @@ if st.session_state.dados is not None:
 
             st.plotly_chart(fig, use_container_width=True)
 
-            st.write(contrato_info.columns)
+            
             st.write(df_complementares.columns)
             st.write(df_evolucao_empenho.columns)
 
