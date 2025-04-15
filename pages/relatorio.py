@@ -819,10 +819,10 @@ if st.session_state.dados is not None:
             # 🎯 Determinar a nota filtrada
             if contrato_info["Nota Empenho"]:
                 nota_filtrada = [contrato_info["Nota Empenho"]]
-                print(nota_filtrada) # Uma lista de notas
+                #print(nota_filtrada) # Uma lista de notas
             else:
                 nota_filtrada =  notas_acumulado  # Um único valor
-                 print(nota_filtrada) # Uma lista de notas
+                print(nota_filtrada) # Uma lista de notas
 
 
             # Caso haja mais de uma nota, gere os gráficos para cada uma
