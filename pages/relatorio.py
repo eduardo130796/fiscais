@@ -814,19 +814,24 @@ if st.session_state.dados is not None:
             st.plotly_chart(fig, use_container_width=True)
 
 
-            st.dataframe(df_evolucao_empenho)
-            # 🎯 Determinar a nota filtrada
-            # 🎯 Determinar a nota filtrada
             if contrato_info["Nota Empenho"]:
-                nota_filtrada = [contrato_info["Nota Empenho"]]
-                st.write(nota_filtrada)
-                
-                #print(nota_filtrada) # Uma lista de notas
+                nota_filtrada = [str(contrato_info["Nota Empenho"]).strip()]
             else:
-                nota_filtrada =  notas_acumulado  # Um único valor
-                st.write(nota_filtrada)
-                #print(nota_filtrada) # Uma lista de notas
-            nota_filtrada=["NE000602","NE000628","NE000623","NE000588"]
+                # Coletar notas das unidades complementares
+                notas_acumulado = []
+                dados_complementares_filtrados = df_complementares[
+                    (df_complementares["É Complementar"] == True) &
+                    (df_complementares["Contrato"] == contrato)
+                ]
+            
+                for _, row in dados_complementares_filtrados.iterrows():
+                    nota = row.get("Nota Empenho")
+                    if pd.notna(nota) and str(nota).strip() != "":
+                        notas_acumulado.append(str(nota).strip())
+            
+                nota_filtrada = notas_acumulado
+            
+            st.write("Notas filtradas para análise:", nota_filtrada)
 
             # Caso haja mais de uma nota, gere os gráficos para cada uma
             for nota_item in nota_filtrada:
