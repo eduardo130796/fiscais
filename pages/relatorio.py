@@ -814,7 +814,7 @@ if st.session_state.dados is not None:
             st.plotly_chart(fig, use_container_width=True)
 
             st.dataframe(contrato_info)
-            st.dataframe(df_complementares)
+            st.dataframe(dados_complementares)
             st.dataframe(df_evolucao_empenho)
 
             if contrato_info["Nota Empenho"]:
@@ -826,7 +826,8 @@ if st.session_state.dados is not None:
                     (df_complementares["É Complementar"] == True) &
                     (df_complementares["Contrato"] == contrato)
                 ]
-            
+                st.write("dentro do else")
+                st.dataframe(dados_complementares_filtrados)
                 for _, row in dados_complementares_filtrados.iterrows():
                     nota = row.get("Nota Empenho")
                     if pd.notna(nota) and str(nota).strip() != "":
