@@ -826,7 +826,7 @@ if st.session_state.dados is not None:
                 nota_filtrada =  notas_acumulado  # Um único valor
                 st.write(nota_filtrada)
                 #print(nota_filtrada) # Uma lista de notas
-            nota_filtrada=["NE000602","NE000628","NE000623"]
+            nota_filtrada=["NE000602","NE000628","NE000623","NE000588"]
 
             # Caso haja mais de uma nota, gere os gráficos para cada uma
             for nota_item in nota_filtrada:
